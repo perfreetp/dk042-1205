@@ -18,6 +18,7 @@ export default function App() {
           <Route path="asset/:id" element={<AssetDetail />} />
           <Route path="lineage/:id" element={<Lineage />} />
           <Route path="permissions" element={<Permissions />} />
+          <Route path="permissions/:assetId" element={<Permissions />} />
           <Route path="inventory" element={<Inventory />} />
           <Route path="favorites" element={<Favorites />} />
         </Route>

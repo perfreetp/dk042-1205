@@ -3,6 +3,7 @@ import {
   ClipboardList,
   Plus,
   CheckCircle,
+  Check,
   Clock,
   AlertTriangle,
   Trash2,
@@ -15,14 +16,12 @@ import {
   Building2,
   XCircle,
   FileText,
-  Check,
-  X,
   HelpCircle,
-  ChevronDown,
+  ArrowLeft,
 } from 'lucide-react';
 import { useInventoryStore } from '@/store/useInventoryStore';
 import { useAssetStore } from '@/store/useAssetStore';
-import { systems, users, currentUser } from '@/data/systems';
+import { systems, users } from '@/data/systems';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
@@ -87,11 +86,18 @@ function ProgressRing({
   );
 }
 
-function TaskCard({ task }: { task: InventoryTask }) {
+function TaskCard({
+  task,
+  onClick,
+}: {
+  task: InventoryTask;
+  onClick: () => void;
+}) {
   const progress = task.totalAssets > 0 ? task.confirmedAssets / task.totalAssets : 0;
 
   return (
-    <Card hover className="p-5">
+    <div className="cursor-pointer" onClick={onClick}>
+      <Card hover className="p-5">
       <div className="flex items-start justify-between mb-4">
         <div className="flex-1 min-w-0">
           <h3 className="font-medium text-slate-200 truncate">{task.name}</h3>
@@ -152,11 +158,15 @@ function TaskCard({ task }: { task: InventoryTask }) {
         </div>
       </div>
     </Card>
+    </div>
   );
 }
 
-function AssetInventoryItem({ asset, onStatusChange }: { 
-  asset: DataAsset; 
+function AssetInventoryItem({
+  asset,
+  onStatusChange,
+}: {
+  asset: DataAsset;
   onStatusChange: (assetId: string, status: InventoryStatus) => void;
 }) {
   const statusActions = [
@@ -212,6 +222,8 @@ function NewTaskModal({ onClose }: { onClose: () => void }) {
   const [selectedSystem, setSelectedSystem] = useState('');
   const [deadline, setDeadline] = useState('');
   const [selectedAssignees, setSelectedAssignees] = useState<string[]>([]);
+  const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
+  const [assetSearch, setAssetSearch] = useState('');
   const { addTask, getDepartmentList } = useInventoryStore();
   const { assets } = useAssetStore();
 
@@ -225,18 +237,24 @@ function NewTaskModal({ onClose }: { onClose: () => void }) {
     if (selectedSystem) {
       filtered = filtered.filter((a) => a.systemId === selectedSystem);
     }
+    if (assetSearch) {
+      const q = assetSearch.toLowerCase();
+      filtered = filtered.filter(
+        (a) => a.name.toLowerCase().includes(q) || a.systemName.toLowerCase().includes(q)
+      );
+    }
     return filtered;
-  }, [assets, department, selectedSystem]);
+  }, [assets, department, selectedSystem, assetSearch]);
 
   const availableAssignees = useMemo(() => {
     if (!department) return [];
     return users.filter((u) => u.department === department);
   }, [department]);
 
-  const canProceed = step === 1 
-    ? taskName.trim() && department 
-    : step === 2 
-      ? deadline && selectedAssignees.length > 0 
+  const canProceed = step === 1
+    ? taskName.trim() && department
+    : step === 2
+      ? deadline && selectedAssignees.length > 0
       : true;
 
   const toggleAssignee = (userId: string) => {
@@ -245,6 +263,22 @@ function NewTaskModal({ onClose }: { onClose: () => void }) {
         ? prev.filter((id) => id !== userId)
         : [...prev, userId]
     );
+  };
+
+  const toggleAsset = (assetId: string) => {
+    setSelectedAssetIds((prev) =>
+      prev.includes(assetId)
+        ? prev.filter((id) => id !== assetId)
+        : [...prev, assetId]
+    );
+  };
+
+  const selectAllAssets = () => {
+    setSelectedAssetIds(filteredAssets.map((a) => a.id));
+  };
+
+  const clearAssetSelection = () => {
+    setSelectedAssetIds([]);
   };
 
   const handleSubmit = () => {
@@ -259,7 +293,7 @@ function NewTaskModal({ onClose }: { onClose: () => void }) {
       systemId: selectedSystem || undefined,
       deadline,
       assignees: assigneeNames,
-      assetIds: filteredAssets.map((a) => a.id),
+      assetIds: selectedAssetIds,
     });
     onClose();
   };
@@ -362,6 +396,7 @@ function NewTaskModal({ onClose }: { onClose: () => void }) {
                       onClick={() => {
                         setDepartment(dept);
                         setSelectedAssignees([]);
+                        setSelectedAssetIds([]);
                       }}
                       className={cn(
                         'py-2 text-sm rounded-lg border transition-all text-left px-3',
@@ -436,6 +471,67 @@ function NewTaskModal({ onClose }: { onClose: () => void }) {
               )}
 
               <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-medium text-slate-300">
+                    选择资产 <span className="text-slate-500 font-normal">({selectedAssetIds.length}/{filteredAssets.length})</span>
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={selectAllAssets}
+                      className="text-xs text-tech-cyan-400 hover:text-tech-cyan-300"
+                    >
+                      全选
+                    </button>
+                    <span className="text-slate-600">|</span>
+                    <button
+                      type="button"
+                      onClick={clearAssetSelection}
+                      className="text-xs text-slate-400 hover:text-slate-300"
+                    >
+                      清空
+                    </button>
+                  </div>
+                </div>
+                <div className="relative mb-2">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+                  <input
+                    type="text"
+                    value={assetSearch}
+                    onChange={(e) => setAssetSearch(e.target.value)}
+                    placeholder="搜索资产..."
+                    className="w-full pl-9 pr-3 py-1.5 bg-dark-bg-800 border border-dark-bg-600 rounded-lg text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-tech-cyan-500/50"
+                  />
+                </div>
+                <div className="space-y-1 max-h-48 overflow-y-auto border border-dark-bg-700/50 rounded-lg p-2">
+                  {filteredAssets.length > 0 ? (
+                    filteredAssets.map((asset) => (
+                      <label
+                        key={asset.id}
+                        className="flex items-center gap-2 p-2 rounded-lg cursor-pointer hover:bg-dark-bg-700/30 transition-colors"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedAssetIds.includes(asset.id)}
+                          onChange={() => toggleAsset(asset.id)}
+                          className="w-4 h-4 rounded border-dark-bg-600 bg-dark-bg-700 text-tech-cyan-500 focus:ring-tech-cyan-500/30"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm text-slate-300 truncate">{asset.name}</div>
+                          <div className="text-xs text-slate-500">{asset.systemName}</div>
+                        </div>
+                        <Badge size="sm" className={cn(getInventoryColor(asset.inventoryStatus))}>
+                          {getInventoryLabel(asset.inventoryStatus)}
+                        </Badge>
+                      </label>
+                    ))
+                  ) : (
+                    <p className="text-sm text-slate-500 py-4 text-center">没有匹配的资产</p>
+                  )}
+                </div>
+              </div>
+
+              <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">
                   负责人 <span className="text-rose-400">*</span>
                 </label>
@@ -483,9 +579,9 @@ function NewTaskModal({ onClose }: { onClose: () => void }) {
 
               <div className="p-3 rounded-lg bg-dark-bg-700/30 border border-dark-bg-600/50">
                 <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">预计盘点资产数</span>
+                  <span className="text-slate-500">已选盘点资产数</span>
                   <span className="text-slate-200 font-mono font-medium">
-                    {filteredAssets.length} 个
+                    {selectedAssetIds.length} 个
                   </span>
                 </div>
               </div>
@@ -526,7 +622,7 @@ function NewTaskModal({ onClose }: { onClose: () => void }) {
                 <div className="flex justify-between text-sm">
                   <span className="text-slate-500">盘点资产数</span>
                   <span className="text-slate-200 font-mono">
-                    {filteredAssets.length} 个
+                    {selectedAssetIds.length} 个
                   </span>
                 </div>
               </div>
@@ -559,7 +655,7 @@ function NewTaskModal({ onClose }: { onClose: () => void }) {
                 <ChevronRight className="w-4 h-4 ml-1" />
               </Button>
             ) : (
-              <Button onClick={handleSubmit}>
+              <Button onClick={handleSubmit} disabled={selectedAssetIds.length === 0}>
                 <CheckCircle className="w-4 h-4 mr-1" />
                 创建任务
               </Button>
@@ -581,16 +677,19 @@ export default function Inventory() {
     setAssetFilter,
     departmentFilter,
     setDepartmentFilter,
+    searchQuery,
+    setSearchQuery,
+    activeTaskId,
+    setActiveTaskId,
     getFilteredTasks,
     getFilteredAssets,
     getTaskStats,
     getAssetStats,
     getDepartmentList,
     updateAssetInventoryStatus,
+    exportInventoryAssets,
   } = useInventoryStore();
-  const { updateInventoryStatus, exportAssets, getFilteredAssets: getStoreFilteredAssets, filters, setFilters } = useAssetStore();
   const [showNewTask, setShowNewTask] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
 
   const taskStats = getTaskStats();
   const assetStats = getAssetStats();
@@ -599,24 +698,20 @@ export default function Inventory() {
   const filteredTasks = getFilteredTasks();
 
   const filteredAssets = useMemo(() => {
-    let assets = getFilteredAssets();
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      assets = assets.filter((a) =>
-        a.name.toLowerCase().includes(query) ||
-        a.systemName.toLowerCase().includes(query)
-      );
-    }
-    return assets.slice(0, 50);
-  }, [getFilteredAssets, searchQuery]);
+    return getFilteredAssets().slice(0, 50);
+  }, [getFilteredAssets]);
+
+  const activeTask = useMemo(() => {
+    if (!activeTaskId) return null;
+    return useInventoryStore.getState().tasks.find((t) => t.id === activeTaskId) || null;
+  }, [activeTaskId]);
 
   const handleStatusChange = (assetId: string, status: InventoryStatus) => {
-    updateInventoryStatus(assetId, status);
-    updateAssetInventoryStatus(assetId, status);
+    updateAssetInventoryStatus(assetId, status, activeTaskId || undefined);
   };
 
   const handleExport = () => {
-    const csvContent = exportAssets();
+    const csvContent = exportInventoryAssets();
     const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
@@ -626,6 +721,15 @@ export default function Inventory() {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+  };
+
+  const handleTaskClick = (task: InventoryTask) => {
+    setActiveTaskId(task.id);
+    setActiveTab('assets');
+  };
+
+  const handleClearActiveTask = () => {
+    setActiveTaskId(null);
   };
 
   const taskTabs: { key: TaskStatus | 'all'; label: string }[] = [
@@ -790,7 +894,7 @@ export default function Inventory() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {filteredTasks.length > 0 ? (
               filteredTasks.map((task) => (
-                <TaskCard key={task.id} task={task} />
+                <TaskCard key={task.id} task={task} onClick={() => handleTaskClick(task)} />
               ))
             ) : (
               <div className="col-span-full py-16 text-center">
@@ -840,17 +944,31 @@ export default function Inventory() {
             ))}
           </div>
 
+          {activeTask && (
+            <div className="p-3 bg-tech-cyan-500/10 border border-tech-cyan-500/30 rounded-lg">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm text-tech-cyan-300">
+                  <ClipboardList className="w-4 h-4" />
+                  正在查看: <span className="font-medium">{activeTask.name}</span> 的资产范围
+                  <span className="text-tech-cyan-400/70">({filteredAssets.length} 个资产)</span>
+                </div>
+                <button
+                  onClick={handleClearActiveTask}
+                  className="flex items-center gap-1 text-sm text-tech-cyan-400 hover:text-tech-cyan-300 transition-colors"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  返回全部
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-3 flex-1 max-w-md">
               <Building2 className="w-4 h-4 text-slate-500 flex-shrink-0" />
               <select
                 value={departmentFilter}
-                onChange={(e) => {
-                  setDepartmentFilter(e.target.value);
-                  if (e.target.value) {
-                    setFilters({ ...filters, systems: [], themes: [] });
-                  }
-                }}
+                onChange={(e) => setDepartmentFilter(e.target.value)}
                 className="flex-1 bg-dark-bg-800 border border-dark-bg-600 text-slate-300 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-tech-cyan-500/50"
               >
                 <option value="">全部部门</option>
@@ -877,7 +995,7 @@ export default function Inventory() {
             </Button>
           </div>
 
-          {departmentFilter && (
+          {!activeTask && departmentFilter && (
             <div className="p-3 bg-tech-cyan-500/10 border border-tech-cyan-500/30 rounded-lg">
               <div className="flex items-center gap-2 text-sm text-tech-cyan-300">
                 <Building2 className="w-4 h-4" />

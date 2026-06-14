@@ -9,8 +9,10 @@ import {
   Clock,
   ArrowRight,
   Eye,
+  Bookmark,
 } from 'lucide-react';
 import { useAssetStore } from '@/store/useAssetStore';
+import { useViewStore } from '@/store/useViewStore';
 import { systems } from '@/data/systems';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
@@ -174,6 +176,7 @@ function RecentUpdateItem({ asset }: { asset: DataAsset }) {
 
 export default function Home() {
   const { assets, getHotAssets, getRecentlyUpdated, toggleFavorite } = useAssetStore();
+  const { views } = useViewStore();
   const hotAssets = getHotAssets();
   const recentAssets = getRecentlyUpdated();
 
@@ -252,6 +255,43 @@ export default function Home() {
           delay={3}
         />
       </div>
+
+      {views.length > 0 && (
+        <Card className="p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-slate-100 flex items-center gap-2">
+              <Bookmark className="w-5 h-5 text-tech-cyan-400" />
+              常用视图
+            </h2>
+            <Link
+              to="/catalog"
+              className="text-sm text-tech-cyan-400 hover:text-tech-cyan-300 flex items-center gap-1"
+            >
+              管理视图
+              <ArrowRight className="w-4 h-4" />
+            </Link>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
+            {views.map((view) => (
+              <Link
+                key={view.id}
+                to={`/catalog?view=${view.id}`}
+                className="flex items-center gap-3 p-3 rounded-xl border border-dark-bg-700/50 hover:border-tech-cyan-500/30 hover:bg-dark-bg-800/50 transition-all group"
+              >
+                <div className="w-10 h-10 rounded-lg bg-tech-cyan-500/10 border border-tech-cyan-500/20 flex items-center justify-center flex-shrink-0 group-hover:bg-tech-cyan-500/20 transition-colors">
+                  <Bookmark className="w-5 h-5 text-tech-cyan-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-slate-200 truncate group-hover:text-tech-cyan-400 transition-colors">
+                    {view.name}
+                  </div>
+                  <div className="text-xs text-slate-500">{view.createdAt}</div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-2 p-6">

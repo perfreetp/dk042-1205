@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { useParams } from 'react-router-dom';
+import { useState, useMemo, useEffect } from 'react';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Shield,
   Plus,
@@ -17,6 +17,8 @@ import {
   Search,
   Send,
   MessageSquare,
+  History,
+  ArrowLeft,
 } from 'lucide-react';
 import { usePermissionStore } from '@/store/usePermissionStore';
 import { useAssetStore } from '@/store/useAssetStore';
@@ -340,7 +342,7 @@ interface NewRequestFormProps {
 }
 
 function NewRequestForm({ onClose, initialAssetId }: NewRequestFormProps) {
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState(initialAssetId ? 2 : 1);
   const [selectedAsset, setSelectedAsset] = useState(initialAssetId || '');
   const [permissionType, setPermissionType] = useState<PermissionType>('read');
   const [duration, setDuration] = useState('3个月');
@@ -348,6 +350,13 @@ function NewRequestForm({ onClose, initialAssetId }: NewRequestFormProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const { addRequest } = usePermissionStore();
   const { assets } = useAssetStore();
+
+  useEffect(() => {
+    if (initialAssetId) {
+      setSelectedAsset(initialAssetId);
+      setStep(2);
+    }
+  }, [initialAssetId]);
 
   const filteredAssets = useMemo(() => {
     return assets.filter(
@@ -393,6 +402,7 @@ function NewRequestForm({ onClose, initialAssetId }: NewRequestFormProps) {
               const stepNum = index + 1;
               const isActive = step === stepNum;
               const isDone = step > stepNum;
+              const isSkipped = initialAssetId && stepNum === 1;
 
               return (
                 <div key={label} className="flex items-center flex-1">
@@ -400,7 +410,9 @@ function NewRequestForm({ onClose, initialAssetId }: NewRequestFormProps) {
                     <div
                       className={cn(
                         'w-7 h-7 rounded-full flex items-center justify-center text-sm font-medium',
-                        isActive
+                        isSkipped && isDone
+                          ? 'bg-emerald-500 text-white'
+                          : isActive
                           ? 'bg-tech-cyan-500 text-white'
                           : isDone
                           ? 'bg-emerald-500 text-white'
@@ -623,7 +635,7 @@ function NewRequestForm({ onClose, initialAssetId }: NewRequestFormProps) {
             取消
           </Button>
           <div className="flex gap-3">
-            {step > 1 && (
+            {step > 1 && !(initialAssetId && step === 2) && (
               <Button variant="outline" onClick={() => setStep(step - 1)}>
                 上一步
               </Button>
@@ -646,10 +658,134 @@ function NewRequestForm({ onClose, initialAssetId }: NewRequestFormProps) {
   );
 }
 
+function AssetPermissionHistory({ assetId }: { assetId: string }) {
+  const { getRequestsByAsset } = usePermissionStore();
+  const { getAssetById } = useAssetStore();
+  const assetRequests = getRequestsByAsset(assetId);
+  const asset = getAssetById(assetId);
+
+  if (assetRequests.length === 0) {
+    return (
+      <Card className="p-6">
+        <h3 className="text-lg font-semibold text-slate-100 mb-4 flex items-center gap-2">
+          <History className="w-5 h-5 text-tech-cyan-400" />
+          资产申请历史
+        </h3>
+        {asset && (
+          <p className="text-sm text-slate-500 mb-4">
+            {asset.name} · {asset.systemName}
+          </p>
+        )}
+        <div className="py-8 text-center">
+          <Shield className="w-10 h-10 text-slate-600 mx-auto mb-3" />
+          <p className="text-slate-400">该资产暂无权限申请记录</p>
+        </div>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="p-5 border-b border-dark-bg-700/50">
+        <h3 className="text-lg font-semibold text-slate-100 flex items-center gap-2">
+          <History className="w-5 h-5 text-tech-cyan-400" />
+          资产申请历史
+        </h3>
+        {asset && (
+          <p className="text-sm text-slate-500 mt-1">
+            {asset.name} · {asset.systemName}
+          </p>
+        )}
+        <p className="text-xs text-slate-500 mt-1">
+          共 {assetRequests.length} 条申请记录
+        </p>
+      </div>
+      <div className="divide-y divide-dark-bg-700/50">
+        {assetRequests.map((request) => {
+          const statusIcons = {
+            pending: Clock,
+            processing: Loader2,
+            approved: CheckCircle,
+            rejected: XCircle,
+          };
+          const StatusIcon = statusIcons[request.status];
+
+          return (
+            <div
+              key={request.id}
+              className="p-4 hover:bg-dark-bg-700/20 transition-colors"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div
+                    className={cn(
+                      'w-8 h-8 rounded-lg flex items-center justify-center',
+                      getRequestStatusColor(request.status).replace('text-', 'bg-').replace('400', '500/10')
+                    )}
+                  >
+                    <StatusIcon
+                      className={cn(
+                        'w-4 h-4',
+                        request.status === 'processing' && 'animate-spin'
+                      )}
+                      style={{ color: 'inherit' }}
+                    />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-slate-200">
+                        {request.applicantName}
+                      </span>
+                      <Badge className={getRequestStatusColor(request.status)}>
+                        {getRequestStatusLabel(request.status)}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
+                      <span className="flex items-center gap-1">
+                        <Calendar className="w-3 h-3" />
+                        {formatDateFull(request.createdAt)}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <Shield className="w-3 h-3" />
+                        {request.permissionType === 'read' ? '读权限' : request.permissionType === 'write' ? '写权限' : '管理员'}
+                      </span>
+                      <span>
+                        {request.duration}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="text-right">
+                  <div className="text-xs text-slate-500">申请原因</div>
+                  <div className="text-sm text-slate-300 mt-0.5 line-clamp-1 max-w-[200px]">
+                    {request.reason}
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
 export default function Permissions() {
   const { assetId } = useParams<{ assetId?: string }>();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { activeTab, setActiveTab, getFilteredRequests, getStats } = usePermissionStore();
   const [showNewRequest, setShowNewRequest] = useState(false);
+  const { getAssetById } = useAssetStore();
+
+  const assetFromUrl = assetId ? getAssetById(assetId) : undefined;
+
+  useEffect(() => {
+    if (assetId && !showNewRequest) {
+      setShowNewRequest(true);
+    }
+  }, [assetId]);
 
   const filteredRequests = getFilteredRequests();
   const stats = getStats();
@@ -667,14 +803,41 @@ export default function Permissions() {
     return stats[key];
   };
 
+  const handleFormClose = () => {
+    setShowNewRequest(false);
+    if (assetId) {
+      navigate('/permissions');
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-100">权限申请</h1>
-          <p className="text-sm text-slate-500 mt-1">
-            管理您的数据访问权限申请，追踪审批进度
-          </p>
+          <div className="flex items-center gap-3">
+            {assetId && assetFromUrl && (
+              <button
+                onClick={() => navigate(`/asset/${assetId}`)}
+                className="text-slate-400 hover:text-tech-cyan-400 transition-colors"
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+            )}
+            <div>
+              <h1 className="text-2xl font-bold text-slate-100">
+                权限申请
+                {assetFromUrl && (
+                  <span className="text-tech-cyan-400"> · {assetFromUrl.name}</span>
+                )}
+              </h1>
+              <p className="text-sm text-slate-500 mt-1">
+                {assetFromUrl
+                  ? `为 ${assetFromUrl.name} 申请数据访问权限`
+                  : '管理您的数据访问权限申请，追踪审批进度'
+                }
+              </p>
+            </div>
+          </div>
         </div>
         <Button onClick={() => setShowNewRequest(true)}>
           <Plus className="w-4 h-4 mr-1" />
@@ -741,15 +904,14 @@ export default function Permissions() {
         </div>
       </Card>
 
-      {(showNewRequest || assetId) && (
+      {assetId && (
+        <AssetPermissionHistory assetId={assetId} />
+      )}
+
+      {showNewRequest && (
         <NewRequestForm
           initialAssetId={assetId}
-          onClose={() => {
-            setShowNewRequest(false);
-            if (assetId) {
-              window.history.back();
-            }
-          }}
+          onClose={handleFormClose}
         />
       )}
     </div>

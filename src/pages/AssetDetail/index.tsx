@@ -20,8 +20,10 @@ import {
   Check,
   AlertTriangle,
   Flame,
+  FileText,
 } from 'lucide-react';
 import { useAssetStore } from '@/store/useAssetStore';
+import { usePermissionStore } from '@/store/usePermissionStore';
 import { getFieldsByAssetId } from '@/data/mockData';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
@@ -146,11 +148,13 @@ export default function AssetDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { assets, toggleFavorite } = useAssetStore();
+  const { getRequestsByAsset } = usePermissionStore();
   const [expandedField, setExpandedField] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState(false);
 
   const asset = assets.find((a) => a.id === id);
   const fields = asset ? getFieldsByAssetId(asset.id) : [];
+  const permissionRequests = asset ? getRequestsByAsset(asset.id) : [];
 
   if (!asset) {
     return (
@@ -403,6 +407,81 @@ export default function AssetDetail() {
             </tbody>
           </table>
         </div>
+      </Card>
+
+      {/* Permission Request History */}
+      <Card className="overflow-hidden">
+        <div className="p-5 border-b border-dark-bg-700/50">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-slate-100 flex items-center gap-2">
+              <FileText className="w-5 h-5 text-tech-cyan-400" />
+              权限申请记录
+            </h2>
+            <div className="flex items-center gap-3">
+              <Badge variant="default">{permissionRequests.length} 条记录</Badge>
+              <Link
+                to={`/permissions/${asset.id}`}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-tech-cyan-400 bg-tech-cyan-500/10 border border-tech-cyan-500/30 rounded-lg hover:bg-tech-cyan-500/20 transition-colors"
+              >
+                <Shield className="w-3.5 h-3.5" />
+                申请权限
+              </Link>
+            </div>
+          </div>
+        </div>
+        {permissionRequests.length === 0 ? (
+          <div className="py-12 text-center">
+            <FileText className="w-10 h-10 text-slate-600 mx-auto mb-3" />
+            <p className="text-slate-400">暂无权限申请记录</p>
+            <p className="text-sm text-slate-500 mt-1">点击上方"申请权限"发起申请</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-dark-bg-700/30">
+            {permissionRequests.map((req) => (
+              <div key={req.id} className="p-4 hover:bg-dark-bg-700/20 transition-colors">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-3">
+                    <Badge
+                      className={cn(
+                        req.status === 'approved'
+                          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                          : req.status === 'rejected'
+                          ? 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+                          : req.status === 'pending'
+                          ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                          : 'bg-tech-cyan-500/10 text-tech-cyan-400 border-tech-cyan-500/30'
+                      )}
+                    >
+                      {req.status === 'approved'
+                        ? '已通过'
+                        : req.status === 'rejected'
+                        ? '已拒绝'
+                        : req.status === 'pending'
+                        ? '待审批'
+                        : '审批中'}
+                    </Badge>
+                    <span className="text-sm text-slate-300">
+                      {req.permissionType === 'read' ? '只读' : req.permissionType === 'write' ? '读写' : '管理'}权限
+                    </span>
+                    {req.duration && (
+                      <span className="text-xs text-slate-500">有效期 {req.duration}</span>
+                    )}
+                  </div>
+                  <span className="text-xs text-slate-500">
+                    {req.createdAt.slice(0, 16)}
+                  </span>
+                </div>
+                <p className="text-sm text-slate-400 mb-1">
+                  <span className="text-slate-500">申请理由：</span>
+                  {req.reason}
+                </p>
+                <div className="text-xs text-slate-500">
+                  申请人：{req.applicantName}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </Card>
     </div>
   );

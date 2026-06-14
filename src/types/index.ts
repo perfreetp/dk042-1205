@@ -103,6 +103,8 @@ export interface InventoryTask {
   createdAt: string;
   deadline: string;
   assignees: string[];
+  assetIds: string[];
+  updatedAt?: string;
 }
 
 export interface System {
@@ -142,3 +144,13 @@ export interface AssetFilters {
 
 export type SortField = 'name' | 'heat' | 'updated' | 'created';
 export type SortOrder = 'asc' | 'desc';
+
+export interface SavedView {
+  id: string;
+  name: string;
+  filters: AssetFilters;
+  departments: string[];
+  sortField: SortField;
+  sortOrder: SortOrder;
+  createdAt: string;
+}

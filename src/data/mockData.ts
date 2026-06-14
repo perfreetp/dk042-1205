@@ -155,8 +155,10 @@ export const inventoryTasks: InventoryTask[] = [
     pendingAssets: 20,
     deprecatedAssets: 6,
     createdAt: '2024-01-02 09:00:00',
+    updatedAt: '2024-01-02 09:00:00',
     deadline: '2024-01-31 23:59:59',
     assignees: ['王浩', '李雪'],
+    assetIds: [],
   },
   {
     id: 'task-002',
@@ -171,8 +173,10 @@ export const inventoryTasks: InventoryTask[] = [
     pendingAssets: 0,
     deprecatedAssets: 5,
     createdAt: '2023-12-15 10:00:00',
+    updatedAt: '2023-12-15 10:00:00',
     deadline: '2023-12-31 23:59:59',
     assignees: ['周涛', '张明'],
+    assetIds: [],
   },
   {
     id: 'task-003',
@@ -187,8 +191,10 @@ export const inventoryTasks: InventoryTask[] = [
     pendingAssets: 36,
     deprecatedAssets: 0,
     createdAt: '2024-01-10 14:00:00',
+    updatedAt: '2024-01-10 14:00:00',
     deadline: '2024-02-28 23:59:59',
     assignees: ['陈静'],
+    assetIds: [],
   },
   {
     id: 'task-004',
@@ -204,7 +210,9 @@ export const inventoryTasks: InventoryTask[] = [
     pendingAssets: 10,
     deprecatedAssets: 3,
     createdAt: '2024-01-08 11:00:00',
+    updatedAt: '2024-01-08 11:00:00',
     deadline: '2024-01-25 23:59:59',
     assignees: ['赵强'],
+    assetIds: [],
   },
 ];

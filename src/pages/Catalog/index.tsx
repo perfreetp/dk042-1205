@@ -1,5 +1,5 @@
-import { useState, useMemo, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { useState, useMemo, useEffect, useCallback } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   Search,
   Filter,
@@ -15,8 +15,12 @@ import {
   Download,
   User,
   Building2,
+  BookmarkPlus,
+  Bookmark,
+  Trash2,
 } from 'lucide-react';
 import { useAssetStore } from '@/store/useAssetStore';
+import { useViewStore } from '@/store/useViewStore';
 import { systems, themes } from '@/data/systems';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
@@ -37,6 +41,7 @@ import type {
   SortField,
   SortOrder,
   DataAsset,
+  SavedView,
 } from '@/types';
 
 interface FilterSectionProps {
@@ -196,6 +201,153 @@ function AssetListItem({ asset }: { asset: DataAsset }) {
   );
 }
 
+function SaveViewModal({
+  open,
+  onClose,
+  onSave,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSave: (name: string) => void;
+}) {
+  const [name, setName] = useState('');
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="w-full max-w-md mx-4 bg-dark-bg-800 border border-dark-bg-600 rounded-xl shadow-2xl">
+        <div className="flex items-center justify-between p-5 border-b border-dark-bg-700">
+          <h3 className="text-lg font-semibold text-slate-100">保存当前筛选视图</h3>
+          <button onClick={onClose} className="p-1 hover:bg-dark-bg-700 rounded-lg transition-colors">
+            <X className="w-5 h-5 text-slate-400" />
+          </button>
+        </div>
+        <div className="p-5">
+          <label className="block text-sm text-slate-300 mb-2">视图名称</label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="如：交易线高敏资产"
+            className="w-full px-3 py-2 bg-dark-bg-900 border border-dark-bg-600 rounded-lg text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-tech-cyan-500/50"
+            autoFocus
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && name.trim()) {
+                onSave(name.trim());
+                setName('');
+              }
+            }}
+          />
+          <p className="text-xs text-slate-500 mt-2">
+            保存后可在首页和目录页一键切换此筛选组合
+          </p>
+        </div>
+        <div className="flex justify-end gap-3 p-5 border-t border-dark-bg-700">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors"
+          >
+            取消
+          </button>
+          <button
+            onClick={() => {
+              if (name.trim()) {
+                onSave(name.trim());
+                setName('');
+              }
+            }}
+            disabled={!name.trim()}
+            className="px-4 py-2 text-sm font-medium text-white bg-tech-cyan-600 rounded-lg hover:bg-tech-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            保存视图
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ViewSelector({
+  views,
+  activeViewId,
+  onSelect,
+  onDelete,
+}: {
+  views: SavedView[];
+  activeViewId: string | null;
+  onSelect: (view: SavedView) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  if (views.length === 0) return null;
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className={cn(
+          'inline-flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg border transition-colors',
+          activeViewId
+            ? 'bg-tech-cyan-500/10 border-tech-cyan-500/30 text-tech-cyan-400'
+            : 'border-dark-bg-600 text-slate-400 hover:border-dark-bg-500 hover:text-slate-300'
+        )}
+      >
+        <Bookmark className="w-3.5 h-3.5" />
+        {activeViewId ? views.find((v) => v.id === activeViewId)?.name || '常用视图' : '常用视图'}
+        <ChevronDown className={cn('w-3.5 h-3.5 transition-transform', open && 'rotate-180')} />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute top-full left-0 mt-1 w-64 bg-dark-bg-800 border border-dark-bg-600 rounded-xl shadow-2xl z-50 overflow-hidden">
+            <div className="p-2 border-b border-dark-bg-700">
+              <span className="text-xs text-slate-500 px-2">已保存的筛选视图</span>
+            </div>
+            <div className="max-h-60 overflow-y-auto">
+              {views.map((view) => (
+                <div
+                  key={view.id}
+                  className={cn(
+                    'flex items-center justify-between px-3 py-2.5 cursor-pointer hover:bg-dark-bg-700/50 transition-colors',
+                    activeViewId === view.id && 'bg-tech-cyan-500/5'
+                  )}
+                  onClick={() => {
+                    onSelect(view);
+                    setOpen(false);
+                  }}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className={cn(
+                      'text-sm truncate',
+                      activeViewId === view.id ? 'text-tech-cyan-400' : 'text-slate-200'
+                    )}>
+                      {view.name}
+                    </div>
+                    <div className="text-xs text-slate-500 truncate">
+                      {view.createdAt}
+                    </div>
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDelete(view.id);
+                    }}
+                    className="ml-2 p-1 text-slate-500 hover:text-rose-400 transition-colors"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function Catalog() {
   const {
     filters,
@@ -220,6 +372,11 @@ export default function Catalog() {
     _hasHydrated,
   } = useAssetStore();
 
+  const { views, addView, removeView, getViewById } = useViewStore();
+  const [searchParams] = useSearchParams();
+  const [activeViewId, setActiveViewId] = useState<string | null>(null);
+  const [showSaveModal, setShowSaveModal] = useState(false);
+
   useEffect(() => {
     if (_hasHydrated) {
       const hasInvalidState = 
@@ -231,6 +388,20 @@ export default function Catalog() {
       }
     }
   }, [_hasHydrated, departments, filters, resetFilters]);
+
+  useEffect(() => {
+    if (!_hasHydrated) return;
+    const viewId = searchParams.get('view');
+    if (viewId) {
+      const view = getViewById(viewId);
+      if (view) {
+        setFilters(view.filters);
+        setDepartments(view.departments);
+        setSort(view.sortField, view.sortOrder);
+        setActiveViewId(view.id);
+      }
+    }
+  }, [_hasHydrated, searchParams]);
 
   const [showMobileFilter, setShowMobileFilter] = useState(false);
   const [searchInput, setSearchInput] = useState(filters.searchQuery);
@@ -302,6 +473,25 @@ export default function Catalog() {
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
   };
+
+  const handleSaveView = useCallback((name: string) => {
+    addView(name, filters, departments, sortField, sortOrder);
+    setShowSaveModal(false);
+  }, [addView, filters, departments, sortField, sortOrder]);
+
+  const handleApplyView = useCallback((view: SavedView) => {
+    setFilters(view.filters);
+    setDepartments(view.departments);
+    setSort(view.sortField, view.sortOrder);
+    setActiveViewId(view.id);
+  }, [setFilters, setDepartments, setSort]);
+
+  const handleDeleteView = useCallback((id: string) => {
+    removeView(id);
+    if (activeViewId === id) {
+      setActiveViewId(null);
+    }
+  }, [removeView, activeViewId]);
 
   const activeFilters = useMemo(() => {
     const chips: Array<{ label: string; value: string; key: string; onRemove: () => void }> = [];
@@ -627,6 +817,19 @@ export default function Catalog() {
           </div>
 
           <div className="flex items-center gap-3">
+            <ViewSelector
+              views={views}
+              activeViewId={activeViewId}
+              onSelect={handleApplyView}
+              onDelete={handleDeleteView}
+            />
+            <button
+              onClick={() => setShowSaveModal(true)}
+              className="inline-flex items-center gap-2 px-3 py-2 text-sm text-slate-300 bg-dark-bg-800 border border-dark-bg-600 rounded-lg hover:bg-dark-bg-700 hover:border-dark-bg-500 transition-colors"
+            >
+              <BookmarkPlus className="w-4 h-4" />
+              保存视图
+            </button>
             <button
               onClick={handleExport}
               className="inline-flex items-center gap-2 px-3 py-2 text-sm text-slate-300 bg-dark-bg-800 border border-dark-bg-600 rounded-lg hover:bg-dark-bg-700 hover:border-dark-bg-500 transition-colors"
@@ -823,6 +1026,12 @@ export default function Catalog() {
           </div>
         )}
       </div>
+
+      <SaveViewModal
+        open={showSaveModal}
+        onClose={() => setShowSaveModal(false)}
+        onSave={handleSaveView}
+      />
     </div>
   );
 }
