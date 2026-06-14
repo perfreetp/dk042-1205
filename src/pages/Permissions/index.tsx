@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
+import { useParams } from 'react-router-dom';
 import {
   Shield,
   Plus,
@@ -14,9 +15,11 @@ import {
   AlertCircle,
   ArrowRight,
   Search,
+  Send,
+  MessageSquare,
 } from 'lucide-react';
-import { permissionRequests } from '@/data/mockData';
-import { assets } from '@/data/assets';
+import { usePermissionStore } from '@/store/usePermissionStore';
+import { useAssetStore } from '@/store/useAssetStore';
 import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
@@ -28,7 +31,7 @@ import {
   getSensitivityColor,
   getSensitivityLabel,
 } from '@/utils';
-import type { PermissionRequest, RequestStatus, PermissionType } from '@/types';
+import type { PermissionRequest, RequestStatus, PermissionType, DataAsset } from '@/types';
 
 interface TabProps {
   active: boolean;
@@ -70,11 +73,13 @@ function TimelineStep({
   subtitle,
   status,
   isLast = false,
+  comment,
 }: {
   title: string;
   subtitle: string;
   status: 'done' | 'current' | 'pending' | 'rejected';
   isLast?: boolean;
+  comment?: string;
 }) {
   const statusStyles = {
     done: 'bg-emerald-500 text-white',
@@ -116,6 +121,12 @@ function TimelineStep({
       <div className="flex-1 pb-6">
         <div className="text-sm font-medium text-slate-200">{title}</div>
         <div className="text-xs text-slate-500 mt-0.5">{subtitle}</div>
+        {comment && (
+          <div className="mt-2 p-2 bg-dark-bg-700/50 rounded text-xs text-slate-400">
+            <MessageSquare className="w-3 h-3 inline mr-1" />
+            {comment}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -123,6 +134,11 @@ function TimelineStep({
 
 function RequestCard({ request }: { request: PermissionRequest }) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [rejectComment, setRejectComment] = useState('');
+  const [showRejectInput, setShowRejectInput] = useState(false);
+  const { approveRequest, rejectRequest } = usePermissionStore();
+  const { getAssetById } = useAssetStore();
+  const asset = getAssetById(request.assetId);
 
   const statusIcons = {
     pending: Clock,
@@ -132,6 +148,20 @@ function RequestCard({ request }: { request: PermissionRequest }) {
   };
 
   const StatusIcon = statusIcons[request.status];
+  const canApprove = request.status === 'pending' || request.status === 'processing';
+  const canReject = request.status === 'pending' || request.status === 'processing';
+
+  const handleApprove = () => {
+    approveRequest(request.id);
+  };
+
+  const handleReject = () => {
+    if (rejectComment.trim()) {
+      rejectRequest(request.id, rejectComment);
+      setShowRejectInput(false);
+      setRejectComment('');
+    }
+  };
 
   return (
     <Card className="overflow-hidden">
@@ -168,6 +198,12 @@ function RequestCard({ request }: { request: PermissionRequest }) {
                   <Calendar className="w-3.5 h-3.5" />
                   {formatDateFull(request.createdAt)}
                 </span>
+                {asset && (
+                  <span className="flex items-center gap-1">
+                    <Shield className="w-3.5 h-3.5" />
+                    {getSensitivityLabel(asset.sensitivityLevel)}
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -213,6 +249,12 @@ function RequestCard({ request }: { request: PermissionRequest }) {
                   <span className="text-slate-500">申请时间</span>
                   <span className="text-slate-300">{formatDateFull(request.createdAt)}</span>
                 </div>
+                {request.updatedAt !== request.createdAt && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500">更新时间</span>
+                    <span className="text-slate-300">{formatDateFull(request.updatedAt)}</span>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -226,13 +268,15 @@ function RequestCard({ request }: { request: PermissionRequest }) {
                   const historyItem = request.approvalHistory.find(
                     (h) => h.approver === approver
                   );
-                  let status: 'done' | 'current' | 'pending' = 'pending';
+                  let status: 'done' | 'current' | 'pending' | 'rejected' = 'pending';
                   let subtitle = '待审批';
+                  let comment = '';
 
                   if (historyItem) {
-                    status = historyItem.action === 'approve' ? 'done' : 'done';
+                    status = historyItem.action === 'approve' ? 'done' : 'rejected';
                     subtitle = `${historyItem.action === 'approve' ? '已通过' : '已拒绝'} · ${formatDateFull(historyItem.time)}`;
-                  } else if (request.currentApprover === approver) {
+                    comment = historyItem.comment;
+                  } else if (request.currentApprover === approver && request.status !== 'rejected' && request.status !== 'approved') {
                     status = 'current';
                     subtitle = '审批中';
                   }
@@ -243,6 +287,7 @@ function RequestCard({ request }: { request: PermissionRequest }) {
                       title={`${approver} 审批`}
                       subtitle={subtitle}
                       status={status}
+                      comment={comment}
                       isLast={index === request.approvers.length - 1}
                     />
                   );
@@ -251,10 +296,36 @@ function RequestCard({ request }: { request: PermissionRequest }) {
             </div>
           </div>
 
-          {request.status === 'pending' && (
-            <div className="mt-4 pt-4 border-t border-dark-bg-700/50 flex justify-end gap-3">
-              <Button variant="outline">撤回申请</Button>
-              <Button variant="secondary">联系审批人</Button>
+          {canApprove && (
+            <div className="mt-4 pt-4 border-t border-dark-bg-700/50 flex flex-wrap gap-3">
+              {showRejectInput ? (
+                <div className="w-full flex gap-3">
+                  <input
+                    type="text"
+                    value={rejectComment}
+                    onChange={(e) => setRejectComment(e.target.value)}
+                    placeholder="请输入拒绝原因..."
+                    className="flex-1 px-3 py-2 bg-dark-bg-800 border border-dark-bg-600 rounded-lg text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-rose-500/50"
+                  />
+                  <Button variant="outline" onClick={() => setShowRejectInput(false)}>
+                    取消
+                  </Button>
+                  <Button variant="danger" onClick={handleReject} disabled={!rejectComment.trim()}>
+                    确认拒绝
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <Button variant="outline" onClick={() => setShowRejectInput(true)}>
+                    <XCircle className="w-4 h-4 mr-1" />
+                    拒绝
+                  </Button>
+                  <Button onClick={handleApprove}>
+                    <CheckCircle className="w-4 h-4 mr-1" />
+                    通过
+                  </Button>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -263,23 +334,45 @@ function RequestCard({ request }: { request: PermissionRequest }) {
   );
 }
 
-function NewRequestForm({ onClose }: { onClose: () => void }) {
+interface NewRequestFormProps {
+  onClose: () => void;
+  initialAssetId?: string;
+}
+
+function NewRequestForm({ onClose, initialAssetId }: NewRequestFormProps) {
   const [step, setStep] = useState(1);
-  const [selectedAsset, setSelectedAsset] = useState('');
+  const [selectedAsset, setSelectedAsset] = useState(initialAssetId || '');
   const [permissionType, setPermissionType] = useState<PermissionType>('read');
   const [duration, setDuration] = useState('3个月');
   const [reason, setReason] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const { addRequest } = usePermissionStore();
+  const { assets } = useAssetStore();
 
-  const filteredAssets = assets.filter(
-    (a) =>
-      a.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      a.systemName.toLowerCase().includes(searchQuery.toLowerCase())
-  ).slice(0, 8);
+  const filteredAssets = useMemo(() => {
+    return assets.filter(
+      (a) =>
+        a.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        a.systemName.toLowerCase().includes(searchQuery.toLowerCase())
+    ).slice(0, 10);
+  }, [assets, searchQuery]);
 
   const selectedAssetData = assets.find((a) => a.id === selectedAsset);
 
   const canProceed = step === 1 ? selectedAsset : step === 2 ? reason.trim().length > 0 : true;
+
+  const handleSubmit = () => {
+    if (selectedAssetData) {
+      addRequest({
+        assetId: selectedAsset,
+        assetName: selectedAssetData.name,
+        reason,
+        permissionType,
+        duration,
+      });
+      onClose();
+    }
+  };
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -294,7 +387,6 @@ function NewRequestForm({ onClose }: { onClose: () => void }) {
           </button>
         </div>
 
-        {/* Progress steps */}
         <div className="px-5 py-4 border-b border-dark-bg-700/50">
           <div className="flex items-center gap-2">
             {['选择资产', '填写信息', '确认提交'].map((label, index) => {
@@ -377,7 +469,7 @@ function NewRequestForm({ onClose }: { onClose: () => void }) {
                           {asset.name}
                         </div>
                         <div className="text-xs text-slate-500 mt-0.5">
-                          {asset.systemName}
+                          {asset.systemName} · {asset.ownerName}
                         </div>
                       </div>
                       <Badge
@@ -403,7 +495,7 @@ function NewRequestForm({ onClose }: { onClose: () => void }) {
                   {selectedAssetData?.name}
                 </div>
                 <div className="text-sm text-slate-500 mt-1">
-                  {selectedAssetData?.systemName}
+                  {selectedAssetData?.systemName} · {selectedAssetData?.ownerName}
                 </div>
               </div>
 
@@ -513,6 +605,10 @@ function NewRequestForm({ onClose }: { onClose: () => void }) {
                   <span className="text-slate-500">使用期限</span>
                   <span className="text-slate-200">{duration}</span>
                 </div>
+                <div className="flex justify-between text-sm py-2 border-b border-dark-bg-700/50">
+                  <span className="text-slate-500">申请原因</span>
+                  <span className="text-slate-200 text-right flex-1 ml-4 line-clamp-2">{reason}</span>
+                </div>
                 <div className="flex justify-between text-sm py-2">
                   <span className="text-slate-500">审批流程</span>
                   <span className="text-slate-200">2 级审批</span>
@@ -538,8 +634,8 @@ function NewRequestForm({ onClose }: { onClose: () => void }) {
                 <ArrowRight className="w-4 h-4 ml-1" />
               </Button>
             ) : (
-              <Button onClick={onClose}>
-                <CheckCircle className="w-4 h-4 mr-1" />
+              <Button onClick={handleSubmit}>
+                <Send className="w-4 h-4 mr-1" />
                 提交申请
               </Button>
             )}
@@ -551,21 +647,12 @@ function NewRequestForm({ onClose }: { onClose: () => void }) {
 }
 
 export default function Permissions() {
-  const [activeTab, setActiveTab] = useState<'all' | RequestStatus>('all');
+  const { assetId } = useParams<{ assetId?: string }>();
+  const { activeTab, setActiveTab, getFilteredRequests, getStats } = usePermissionStore();
   const [showNewRequest, setShowNewRequest] = useState(false);
 
-  const filteredRequests =
-    activeTab === 'all'
-      ? permissionRequests
-      : permissionRequests.filter((r) => r.status === activeTab);
-
-  const statusCounts = {
-    all: permissionRequests.length,
-    pending: permissionRequests.filter((r) => r.status === 'pending').length,
-    processing: permissionRequests.filter((r) => r.status === 'processing').length,
-    approved: permissionRequests.filter((r) => r.status === 'approved').length,
-    rejected: permissionRequests.filter((r) => r.status === 'rejected').length,
-  };
+  const filteredRequests = getFilteredRequests();
+  const stats = getStats();
 
   const tabs: { key: 'all' | RequestStatus; label: string }[] = [
     { key: 'all', label: '全部' },
@@ -575,9 +662,13 @@ export default function Permissions() {
     { key: 'rejected', label: '已拒绝' },
   ];
 
+  const getTabCount = (key: 'all' | RequestStatus) => {
+    if (key === 'all') return stats.total;
+    return stats[key];
+  };
+
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-100">权限申请</h1>
@@ -591,44 +682,42 @@ export default function Permissions() {
         </Button>
       </div>
 
-      {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card className="p-4">
           <div className="text-2xl font-bold text-slate-100 font-mono">
-            {statusCounts.all}
+            {stats.total}
           </div>
           <div className="text-sm text-slate-500">申请总数</div>
         </Card>
         <Card className="p-4">
           <div className="text-2xl font-bold text-amber-400 font-mono">
-            {statusCounts.pending + statusCounts.processing}
+            {stats.pending + stats.processing}
           </div>
           <div className="text-sm text-slate-500">进行中</div>
         </Card>
         <Card className="p-4">
           <div className="text-2xl font-bold text-emerald-400 font-mono">
-            {statusCounts.approved}
+            {stats.approved}
           </div>
           <div className="text-sm text-slate-500">已通过</div>
         </Card>
         <Card className="p-4">
           <div className="text-2xl font-bold text-rose-400 font-mono">
-            {statusCounts.rejected}
+            {stats.rejected}
           </div>
           <div className="text-sm text-slate-500">已拒绝</div>
         </Card>
       </div>
 
-      {/* Tabs */}
       <Card className="overflow-hidden">
         <div className="border-b border-dark-bg-700/50 px-4">
-          <div className="flex gap-1">
+          <div className="flex gap-1 overflow-x-auto">
             {tabs.map((tab) => (
               <Tab
                 key={tab.key}
                 active={activeTab === tab.key}
                 label={tab.label}
-                count={statusCounts[tab.key]}
+                count={getTabCount(tab.key)}
                 onClick={() => setActiveTab(tab.key)}
               />
             ))}
@@ -652,8 +741,17 @@ export default function Permissions() {
         </div>
       </Card>
 
-      {/* New Request Modal */}
-      {showNewRequest && <NewRequestForm onClose={() => setShowNewRequest(false)} />}
+      {(showNewRequest || assetId) && (
+        <NewRequestForm
+          initialAssetId={assetId}
+          onClose={() => {
+            setShowNewRequest(false);
+            if (assetId) {
+              window.history.back();
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -223,10 +223,13 @@ export default function AssetDetail() {
             <GitBranch className="w-4 h-4" />
             <span className="text-sm">查看血缘</span>
           </Link>
-          <Button>
-            <Shield className="w-4 h-4 mr-2" />
+          <Link
+            to={`/permissions/${asset.id}`}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-tech-cyan-500 text-white text-sm font-medium rounded-lg hover:bg-tech-cyan-600 transition-colors"
+          >
+            <Shield className="w-4 h-4" />
             申请权限
-          </Button>
+          </Link>
         </div>
       </div>
 
@@ -234,7 +237,7 @@ export default function AssetDetail() {
       <Card className="p-5">
         <p className="text-slate-300 leading-relaxed">{asset.description}</p>
         <div className="flex flex-wrap gap-2 mt-4">
-          {asset.tags.map((tag) => (
+          {(asset.tags || []).map((tag) => (
             <Badge
               key={tag}
               variant="default"

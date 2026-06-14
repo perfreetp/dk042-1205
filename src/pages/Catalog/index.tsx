@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Search,
@@ -12,6 +12,9 @@ import {
   Eye,
   Clock,
   Database,
+  Download,
+  User,
+  Building2,
 } from 'lucide-react';
 import { useAssetStore } from '@/store/useAssetStore';
 import { systems, themes } from '@/data/systems';
@@ -27,7 +30,6 @@ import {
   getSensitivityColor,
   getSensitivityLabel,
   formatNumber,
-  formatDate as formatDateFn,
 } from '@/utils';
 import type {
   QualityStatus,
@@ -59,6 +61,27 @@ function FilterSection({ title, children, defaultOpen = true }: FilterSectionPro
       </button>
       {isOpen && <div className="pb-4 space-y-2">{children}</div>}
     </div>
+  );
+}
+
+interface ActiveFilterChipProps {
+  label: string;
+  value: string;
+  onRemove: () => void;
+}
+
+function ActiveFilterChip({ label, value, onRemove }: ActiveFilterChipProps) {
+  return (
+    <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded-full bg-tech-cyan-500/10 border border-tech-cyan-500/30 text-tech-cyan-300">
+      <span className="text-tech-cyan-400/70">{label}:</span>
+      <span>{value}</span>
+      <button
+        onClick={onRemove}
+        className="ml-0.5 hover:text-white transition-colors"
+      >
+        <X className="w-3 h-3" />
+      </button>
+    </span>
   );
 }
 
@@ -97,7 +120,7 @@ function AssetCard({ asset }: { asset: DataAsset }) {
         <Badge className={getSensitivityColor(asset.sensitivityLevel)} size="sm">
           {getSensitivityLabel(asset.sensitivityLevel)}
         </Badge>
-        {asset.tags.slice(0, 2).map((tag) => (
+        {(asset.tags || []).slice(0, 2).map((tag) => (
           <Badge key={tag} variant="default" size="sm">
             {tag}
           </Badge>
@@ -176,8 +199,10 @@ function AssetListItem({ asset }: { asset: DataAsset }) {
 export default function Catalog() {
   const {
     filters,
+    departments,
     setFilters,
     resetFilters,
+    setDepartments,
     sortField,
     sortOrder,
     setSort,
@@ -187,17 +212,39 @@ export default function Catalog() {
     setCurrentPage,
     pageSize,
     getFilteredAssets,
+    getActiveFilterCount,
+    getOwnerList,
+    getDepartmentList,
+    exportAssets,
+    toggleFavorite,
+    _hasHydrated,
   } = useAssetStore();
+
+  useEffect(() => {
+    if (_hasHydrated) {
+      const hasInvalidState = 
+        departments.length > 5 ||
+        filters.systems.length > 5 ||
+        filters.themes.length > 5;
+      if (hasInvalidState) {
+        resetFilters();
+      }
+    }
+  }, [_hasHydrated, departments, filters, resetFilters]);
 
   const [showMobileFilter, setShowMobileFilter] = useState(false);
   const [searchInput, setSearchInput] = useState(filters.searchQuery);
 
-  const filteredAssets = getFilteredAssets();
+  const owners = useMemo(() => getOwnerList(), [getOwnerList]);
+  const departmentList = useMemo(() => getDepartmentList(), [getDepartmentList]);
+  const filteredAssets = useMemo(() => getFilteredAssets(), [getFilteredAssets]);
   const totalPages = Math.ceil(filteredAssets.length / pageSize);
   const paginatedAssets = filteredAssets.slice(
     (currentPage - 1) * pageSize,
     currentPage * pageSize
   );
+  const activeFilterCount = getActiveFilterCount();
+  const hasActiveFilters = activeFilterCount > 0;
 
   const qualityOptions: { value: QualityStatus; label: string; color: string }[] = [
     { value: 'excellent', label: '优秀', color: 'text-emerald-400' },
@@ -230,6 +277,12 @@ export default function Catalog() {
     setFilters({ searchQuery: searchInput });
   };
 
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setSearchInput(val);
+    setFilters({ searchQuery: val });
+  };
+
   const sortOptions: { field: SortField; label: string }[] = [
     { field: 'heat', label: '热度' },
     { field: 'name', label: '名称' },
@@ -237,18 +290,114 @@ export default function Catalog() {
     { field: 'created', label: '创建时间' },
   ];
 
-  const hasActiveFilters =
-    filters.systems.length > 0 ||
-    filters.themes.length > 0 ||
-    filters.qualityStatuses.length > 0 ||
-    filters.sensitivityLevels.length > 0 ||
-    filters.searchQuery;
+  const handleExport = () => {
+    const csvContent = exportAssets();
+    const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `资产清单_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
-  const activeFilterCount =
-    filters.systems.length +
-    filters.themes.length +
-    filters.qualityStatuses.length +
-    filters.sensitivityLevels.length;
+  const activeFilters = useMemo(() => {
+    const chips: Array<{ label: string; value: string; key: string; onRemove: () => void }> = [];
+    
+    if (filters.searchQuery) {
+      chips.push({
+        label: '搜索',
+        value: filters.searchQuery,
+        key: 'search',
+        onRemove: () => {
+          setFilters({ searchQuery: '' });
+          setSearchInput('');
+        },
+      });
+    }
+    
+    filters.systems.forEach((sysId) => {
+      const sys = systems.find((s) => s.id === sysId);
+      if (sys) {
+        chips.push({
+          label: '系统',
+          value: sys.name,
+          key: `sys-${sysId}`,
+          onRemove: () => toggleFilter(sysId, filters.systems, (val) => setFilters({ systems: val })),
+        });
+      }
+    });
+    
+    filters.themes.forEach((themeId) => {
+      const theme = themes.find((t) => t.id === themeId);
+      if (theme) {
+        chips.push({
+          label: '主题',
+          value: theme.name,
+          key: `theme-${themeId}`,
+          onRemove: () => toggleFilter(themeId, filters.themes, (val) => setFilters({ themes: val })),
+        });
+      }
+    });
+    
+    filters.owners.forEach((ownerId) => {
+      const owner = owners.find((o) => o.id === ownerId);
+      if (owner) {
+        chips.push({
+          label: '负责人',
+          value: owner.name,
+          key: `owner-${ownerId}`,
+          onRemove: () => toggleFilter(ownerId, filters.owners, (val) => setFilters({ owners: val as string[] })),
+        });
+      }
+    });
+    
+    departments.forEach((dept) => {
+      chips.push({
+        label: '部门',
+        value: dept,
+        key: `dept-${dept}`,
+        onRemove: () => toggleFilter(dept, departments, setDepartments),
+      });
+    });
+    
+    filters.qualityStatuses.forEach((status) => {
+      const opt = qualityOptions.find((o) => o.value === status);
+      if (opt) {
+        chips.push({
+          label: '质量',
+          value: opt.label,
+          key: `quality-${status}`,
+          onRemove: () => toggleFilter(status, filters.qualityStatuses, (val) => setFilters({ qualityStatuses: val as QualityStatus[] })),
+        });
+      }
+    });
+    
+    filters.sensitivityLevels.forEach((level) => {
+      const opt = sensitivityOptions.find((o) => o.value === level);
+      if (opt) {
+        chips.push({
+          label: '敏感',
+          value: opt.label,
+          key: `sens-${level}`,
+          onRemove: () => toggleFilter(level, filters.sensitivityLevels, (val) => setFilters({ sensitivityLevels: val as SensitivityLevel[] })),
+        });
+      }
+    });
+    
+    filters.tags.forEach((tag) => {
+      chips.push({
+        label: '标签',
+        value: tag,
+        key: `tag-${tag}`,
+        onRemove: () => toggleFilter(tag, filters.tags, (val) => setFilters({ tags: val })),
+      });
+    });
+    
+    return chips;
+  }, [filters, departments, owners, systems, themes]);
 
   return (
     <div className="flex gap-6">
@@ -256,7 +405,7 @@ export default function Catalog() {
       <aside
         className={cn(
           'w-64 flex-shrink-0',
-          'hidden lg:block'
+          showMobileFilter ? 'fixed inset-0 z-50 bg-dark-bg-900/95 lg:bg-transparent lg:relative p-4 lg:p-0 overflow-auto' : 'hidden lg:block'
         )}
       >
         <div className="sticky top-20 space-y-1">
@@ -265,6 +414,14 @@ export default function Catalog() {
               <Filter className="w-4 h-4" />
               筛选条件
             </h2>
+            {showMobileFilter && (
+              <button
+                onClick={() => setShowMobileFilter(false)}
+                className="lg:hidden p-1 hover:bg-dark-bg-700 rounded"
+              >
+                <X className="w-5 h-5 text-slate-400" />
+              </button>
+            )}
             {hasActiveFilters && (
               <button
                 onClick={resetFilters}
@@ -276,6 +433,28 @@ export default function Catalog() {
           </div>
 
           <Card className="p-4">
+            <FilterSection title="所属部门">
+              <div className="space-y-1">
+                {departmentList.map((dept) => (
+                  <label
+                    key={dept}
+                    className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer hover:text-slate-100 transition-colors"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={departments.includes(dept)}
+                      onChange={() => toggleFilter(dept, departments, setDepartments)}
+                      className="w-4 h-4 rounded border-dark-bg-600 bg-dark-bg-700 text-tech-cyan-500 focus:ring-tech-cyan-500/30"
+                    />
+                    <span className="flex items-center gap-1.5 flex-1 truncate">
+                      <Building2 className="w-3 h-3 text-slate-500" />
+                      {dept}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </FilterSection>
+
             <FilterSection title="所属系统">
               <div className="space-y-1">
                 {systems.map((sys) => (
@@ -319,6 +498,35 @@ export default function Catalog() {
                     />
                     <span className="flex-1 truncate">{theme.name}</span>
                     <span className="text-xs text-slate-500">{theme.assetCount}</span>
+                  </label>
+                ))}
+              </div>
+            </FilterSection>
+
+            <FilterSection title="负责人">
+              <div className="space-y-1">
+                {owners.map((owner) => (
+                  <label
+                    key={owner.id}
+                    className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer hover:text-slate-100 transition-colors"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={filters.owners.includes(owner.id)}
+                      onChange={() =>
+                        toggleFilter(owner.id, filters.owners, (val) =>
+                          setFilters({ owners: val as string[] })
+                        )
+                      }
+                      className="w-4 h-4 rounded border-dark-bg-600 bg-dark-bg-700 text-tech-cyan-500 focus:ring-tech-cyan-500/30"
+                    />
+                    <img
+                      src={owner.avatar}
+                      alt={owner.name}
+                      className="w-5 h-5 rounded-full"
+                    />
+                    <span className="flex-1 truncate">{owner.name}</span>
+                    <span className="text-xs text-slate-500">{owner.department}</span>
                   </label>
                 ))}
               </div>
@@ -378,7 +586,7 @@ export default function Catalog() {
 
           {/* Tags */}
           <Card className="p-4 mt-4">
-            <FilterSection title="热门标签" defaultOpen={false}>
+            <FilterSection title="热门标签">
               <div className="flex flex-wrap gap-2">
                 {['核心', '高频', '近源', '加工', '汇总', '明细', '宽表', '实时', 'T+1'].map(
                   (tag) => (
@@ -408,23 +616,25 @@ export default function Catalog() {
       <div className="flex-1 min-w-0">
         {/* Toolbar */}
         <div className="flex items-center justify-between mb-4 flex-wrap gap-4">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-xl font-bold text-slate-100">资产目录</h1>
             <Badge variant="cyan">{filteredAssets.length} 个资产</Badge>
             {hasActiveFilters && (
               <Badge variant="warning">
                 {activeFilterCount} 个筛选条件
-                <button
-                  onClick={resetFilters}
-                  className="ml-1.5 hover:text-white"
-                >
-                  <X className="w-3 h-3" />
-                </button>
               </Badge>
             )}
           </div>
 
           <div className="flex items-center gap-3">
+            <button
+              onClick={handleExport}
+              className="inline-flex items-center gap-2 px-3 py-2 text-sm text-slate-300 bg-dark-bg-800 border border-dark-bg-600 rounded-lg hover:bg-dark-bg-700 hover:border-dark-bg-500 transition-colors"
+            >
+              <Download className="w-4 h-4" />
+              导出清单
+            </button>
+
             <button
               onClick={() => setShowMobileFilter(!showMobileFilter)}
               className={cn(
@@ -443,22 +653,22 @@ export default function Catalog() {
               <button
                 onClick={() => setViewMode('card')}
                 className={cn(
-                'p-1.5 rounded-md transition-colors',
-                viewMode === 'card'
-                  ? 'bg-dark-bg-700 text-tech-cyan-400'
-                  : 'text-slate-500 hover:text-slate-300'
-              )}
+                  'p-1.5 rounded-md transition-colors',
+                  viewMode === 'card'
+                    ? 'bg-dark-bg-700 text-tech-cyan-400'
+                    : 'text-slate-500 hover:text-slate-300'
+                )}
               >
                 <LayoutGrid className="w-4 h-4" />
               </button>
               <button
                 onClick={() => setViewMode('list')}
                 className={cn(
-                'p-1.5 rounded-md transition-colors',
-                viewMode === 'list'
-                  ? 'bg-dark-bg-700 text-tech-cyan-400'
-                  : 'text-slate-500 hover:text-slate-300'
-              )}
+                  'p-1.5 rounded-md transition-colors',
+                  viewMode === 'list'
+                    ? 'bg-dark-bg-700 text-tech-cyan-400'
+                    : 'text-slate-500 hover:text-slate-300'
+                )}
               >
                 <List className="w-4 h-4" />
               </button>
@@ -473,24 +683,45 @@ export default function Catalog() {
                 className="bg-dark-bg-800 border border-dark-bg-600 text-slate-300 text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:border-tech-cyan-500/50"
               >
                 {sortOptions.map((opt) => (
-                <option key={opt.field} value={opt.field}>
-                  {opt.label}
-                </option>
-              ))}
+                  <option key={opt.field} value={opt.field}>
+                    {opt.label}
+                  </option>
+                ))}
               </select>
               <button
                 onClick={() => setSort(sortField, sortOrder === 'asc' ? 'desc' : 'asc')}
                 className="p-1.5 rounded-lg bg-dark-bg-800 border border-dark-bg-600 text-slate-400 hover:text-slate-200 transition-colors"
               >
                 {sortOrder === 'desc' ? (
-                <ChevronDown className="w-4 h-4" />
-              ) : (
-                <ChevronLeft className="w-4 h-4 rotate-90" />
-              )}
+                  <ChevronDown className="w-4 h-4" />
+                ) : (
+                  <ChevronLeft className="w-4 h-4 rotate-90" />
+                )}
               </button>
             </div>
           </div>
         </div>
+
+        {/* Active Filters */}
+        {hasActiveFilters && (
+          <div className="flex items-center gap-2 mb-4 flex-wrap p-3 bg-dark-bg-800/50 rounded-lg border border-dark-bg-700/50">
+            <span className="text-xs text-slate-500 mr-2">当前筛选:</span>
+            {activeFilters.map((chip) => (
+              <ActiveFilterChip
+                key={chip.key}
+                label={chip.label}
+                value={chip.value}
+                onRemove={chip.onRemove}
+              />
+            ))}
+            <button
+              onClick={resetFilters}
+              className="ml-auto text-xs text-tech-cyan-400 hover:text-tech-cyan-300"
+            >
+              清除全部
+            </button>
+          </div>
+        )}
 
         {/* Mobile Search Bar */}
         <form onSubmit={handleSearch} className="mb-4 lg:hidden">
@@ -499,7 +730,7 @@ export default function Catalog() {
             <input
               type="text"
               value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
+              onChange={handleSearchChange}
               placeholder="搜索资产名称、描述、标签..."
               className="w-full pl-10 pr-4 py-2 bg-dark-bg-800 border border-dark-bg-700/50 rounded-lg text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-tech-cyan-500/50"
             />
@@ -530,6 +761,14 @@ export default function Catalog() {
             <p className="text-sm text-slate-500 mt-1">
               尝试调整筛选条件或搜索关键词
             </p>
+            {hasActiveFilters && (
+              <button
+                onClick={resetFilters}
+                className="mt-4 text-sm text-tech-cyan-400 hover:text-tech-cyan-300"
+              >
+                清除所有筛选条件
+              </button>
+            )}
           </div>
         )}
 
@@ -546,32 +785,32 @@ export default function Catalog() {
 
             <div className="flex items-center gap-1">
               {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-              let pageNum: number;
-              if (totalPages <= 5) {
-                pageNum = i + 1;
-              } else if (currentPage <= 3) {
-                pageNum = i + 1;
-              } else if (currentPage >= totalPages - 2) {
-                pageNum = totalPages - 4 + i;
-              } else {
-                pageNum = currentPage - 2 + i;
-              }
+                let pageNum: number;
+                if (totalPages <= 5) {
+                  pageNum = i + 1;
+                } else if (currentPage <= 3) {
+                  pageNum = i + 1;
+                } else if (currentPage >= totalPages - 2) {
+                  pageNum = totalPages - 4 + i;
+                } else {
+                  pageNum = currentPage - 2 + i;
+                }
 
-              return (
-                <button
-                  key={pageNum}
-                  onClick={() => setCurrentPage(pageNum)}
-                  className={cn(
-                    'w-8 h-8 rounded-lg text-sm font-medium transition-colors',
-                    currentPage === pageNum
-                      ? 'bg-tech-cyan-500 text-white'
-                      : 'text-slate-400 hover:bg-dark-bg-700'
-                  )}
-                >
-                  {pageNum}
-                </button>
-              );
-            })}
+                return (
+                  <button
+                    key={pageNum}
+                    onClick={() => setCurrentPage(pageNum)}
+                    className={cn(
+                      'w-8 h-8 rounded-lg text-sm font-medium transition-colors',
+                      currentPage === pageNum
+                        ? 'bg-tech-cyan-500 text-white'
+                        : 'text-slate-400 hover:bg-dark-bg-700'
+                    )}
+                  >
+                    {pageNum}
+                  </button>
+                );
+              })}
             </div>
 
             <button
